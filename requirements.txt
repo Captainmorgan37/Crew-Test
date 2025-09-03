@@ -1,4 +1,4 @@
-streamlit as st
-pandas as pd
-camelot
-networkx as nx
+streamlit
+pdfplumber
+pandas
+networkx

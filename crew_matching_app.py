@@ -41,30 +41,59 @@ def nearest_day(x, day_xcenters):
         return None
     return min(day_xcenters.keys(), key=lambda d: abs(day_xcenters[d] - x))
 
-def parse_pdf_availability(file_like, available_code="A"):
+def parse_pdf_availability(file_like, available_code="A", debug=False):
+    """
+    Parses a roster PDF and returns:
+      - sorted list of all days detected
+      - availability dict: day -> set of pilot codes
+    """
     availability = {}
     all_days = set()
+
     with pdfplumber.open(file_like) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, start=1):
             words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
             if not words:
+                if debug: st.write(f"Page {page_num}: no words detected")
                 continue
-            day_cols = detect_day_columns(words)
+
+            # Normalize day words: numbers 1-31
+            day_words = [w for w in words if w["text"].lstrip("0").isdigit() and 1 <= int(w["text"].lstrip("0")) <= 31]
+            if not day_words:
+                if debug: st.write(f"Page {page_num}: no day numbers found")
+                continue
+
+            # Cluster day words into header row
+            day_rows = cluster_rows(day_words, tol=5.0)
+            best_row = max(day_rows, key=lambda r: len({w["text"] for w in r}))
+            day_cols = {str(int(w["text"].lstrip("0"))): (w["x0"] + w["x1"]) / 2 for w in best_row}
             all_days.update(day_cols.keys())
-            rows = cluster_rows(words, tol=3.0)
+
+            if debug: st.write(f"Page {page_num} day columns:", day_cols)
+
+            # Cluster all words into rows
+            rows = cluster_rows(words, tol=5.0)
             for row in rows:
                 text_line = " ".join(w["text"] for w in row)
-                m = re.search(r"\(([A-Z]{3})\)", text_line)  # pilot code
+                # Pilot code: match either (KVB) or just KVB
+                m = re.search(r"\(?([A-Z]{1,3})\)?", text_line)
                 if not m:
                     continue
-                pilot_code = m.group(1)
+                pilot_code = m.group(1).upper()
+
                 for w in row:
-                    if w["text"].strip() == available_code:
+                    if w["text"].strip().upper() == available_code.upper():
                         xcenter = (w["x0"] + w["x1"]) / 2
-                        d = nearest_day(xcenter, day_cols)
-                        if d is not None:
-                            availability.setdefault(d, set()).add(pilot_code)
+                        # Find nearest day
+                        if not day_cols:
+                            continue
+                        nearest = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
+                        availability.setdefault(nearest, set()).add(pilot_code)
+                        if debug:
+                            st.write(f"Found {available_code} for pilot {pilot_code} on day {nearest}")
+
     return sorted(all_days, key=lambda x: int(x)), availability
+
 
 def build_allowed_pairs(available_codes, role_map, restrictions_set):
     PICs = [p for p in available_codes if role_map.get(p, "").upper() == "PIC"]
@@ -153,3 +182,4 @@ st.dataframe(pairs_df, use_container_width=True)
 pairs_csv = pairs_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download pairings CSV", data=pairs_csv,
                    file_name=f"pairings_day_{chosen_day}.csv", mime="text/csv")
+

@@ -98,8 +98,8 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                 elif debug:
                     st.write(f"   ❌ No valid pilot found above this availability row")
                 
-                # FIXED: Only match if the distance is reasonable (within ~8 units) AND not too many rows away
-                if nearest_pilot is None or min_distance > 8.0:
+                # FIXED: Adjust threshold based on observed pattern - availability rows are ~10-13 units below pilots
+                if nearest_pilot is None or min_distance > 15.0:
                     if debug:
                         st.write(f"⚠️ Skipping availability row (distance too far: {min_distance}): {' '.join([w['text'] for w in row])}")
                     continue

@@ -142,11 +142,21 @@ if not pdf_file:
     st.info("Upload your roster PDF to begin.")
     st.stop()
 
+# Load roles first (needed for filtering pilot codes)
+roles_df = load_dataframe(roles_file)
+valid_pilots = roles_df["Pilot"].astype(str).str.upper().tolist()
+
 # Parse PDF
 with st.spinner("Reading PDF and detecting availability…"):
     data = pdf_file.read()
     pdf_bytes = io.BytesIO(data)
-    days, availability = parse_pdf_availability(pdf_bytes, available_code=avail_code)
+    days, availability = parse_pdf_availability(
+        pdf_bytes, 
+        available_code=avail_code, 
+        valid_pilots=valid_pilots, 
+        debug=True  # optional, set to False if you don't want logs
+    )
+
 
 if not days:
     st.error("No day columns detected. Share a sample PDF if parsing fails.")
@@ -186,6 +196,7 @@ st.dataframe(pairs_df, use_container_width=True)
 pairs_csv = pairs_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download pairings CSV", data=pairs_csv,
                    file_name=f"pairings_day_{chosen_day}.csv", mime="text/csv")
+
 
 
 

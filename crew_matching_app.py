@@ -114,7 +114,8 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                             availability.setdefault(nearest_day_str, set()).add(pilot_code)
                             
                         if debug:
-                            st.write(f"✅ Found {available_code} for pilots {nearest_pilot['pilot_codes']} on day {nearest_day_str} (distance: {min_distance:.1f}, pilots between: {pilots_between})")
+                            row_content = ' '.join([w['text'] for w in row])
+                            st.write(f"✅ Found {available_code} for pilots {nearest_pilot['pilot_codes']} on day {nearest_day_str} (distance: {min_distance:.1f}, pilots between: {pilots_between}) - Row: {row_content}")
 
     return sorted([str(d) for d in all_days], key=int), availability
 

@@ -93,12 +93,11 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                         st.write(f"⚠️ Skipping availability row (distance too far: {min_distance:.1f}): {' '.join([w['text'] for w in row])}")
                     continue
                 
-                # Additional check: make sure we're not skipping too many pilot rows
-                pilots_between = sum(1 for pr in pilot_rows 
-                                   if nearest_pilot['y_position'] < pr['y_position'] < row_y)
-                if pilots_between > 0:
+                # Additional check: make sure this availability row comes immediately after the pilot row (within ~2 row indices)
+                row_gap = i - nearest_pilot['row_index']
+                if row_gap > 2:
                     if debug:
-                        st.write(f"⚠️ Skipping availability row (pilots in between: {pilots_between}): {' '.join([w['text'] for w in row])}")
+                        st.write(f"⚠️ Skipping availability row (row gap too large: {row_gap}): {' '.join([w['text'] for w in row])}")
                     continue
                 
                 # Process availability codes in this row

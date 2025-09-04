@@ -9,13 +9,6 @@ import streamlit as st
 st.set_page_config(page_title="Crew Matching Tool", page_icon="✈️", layout="wide")
 st.title("✈️ Crew Matching Tool (PDF → availability → pairings)")
 
-# Load pilot codes from roles file
-roles_df = load_dataframe(roles_file)
-valid_pilots = roles_df["Pilot"].astype(str).str.upper().tolist()
-
-days, availability = parse_pdf_availability(pdf_bytes, available_code="A", valid_pilots=valid_pilots, debug=True)
-
-
 # -----------------------------
 # Helpers
 # -----------------------------
@@ -193,5 +186,6 @@ st.dataframe(pairs_df, use_container_width=True)
 pairs_csv = pairs_df.to_csv(index=False).encode("utf-8")
 st.download_button("Download pairings CSV", data=pairs_csv,
                    file_name=f"pairings_day_{chosen_day}.csv", mime="text/csv")
+
 
 

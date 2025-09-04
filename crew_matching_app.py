@@ -90,7 +90,7 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                 # FIXED: Only match if the distance is reasonable (within ~13.5 units) AND not too many rows away
                 if nearest_pilot is None or min_distance > 13.5:
                     if debug:
-                        st.write(f"⚠️ Skipping availability row (distance too far: {min_distance:.1f}): {' '.join([w['text'] for w in row])}")
+                        st.write(f"⚠️ Skipping availability row (distance too far: {min_distance}): {' '.join([w['text'] for w in row])}")
                     continue
                 
                 # Additional check: make sure this availability row comes immediately after the pilot row (within ~2 row indices)
@@ -114,7 +114,7 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                             
                         if debug:
                             row_content = ' '.join([w['text'] for w in row])
-                            st.write(f"✅ Found {available_code} for pilots {nearest_pilot['pilot_codes']} on day {nearest_day_str} (distance: {min_distance:.1f}, pilots between: {pilots_between}) - Row: {row_content}")
+                            st.write(f"✅ Found {available_code} for pilots {nearest_pilot['pilot_codes']} on day {nearest_day_str} (distance: {min_distance:.1f}, row gap: {row_gap}) - Row: {row_content}")
 
     return sorted([str(d) for d in all_days], key=int), availability
 

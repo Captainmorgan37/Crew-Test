@@ -11,7 +11,7 @@ st.title("✈️ Crew Matching Tool (PDF → availability → pairings)")
 # -----------------------------
 # Helpers
 # -----------------------------
-def cluster_rows(words, tol=5.0):
+def cluster_rows(words, tol=6.0):
     """Group words by rough row using their vertical center."""
     rows = {}
     for w in words:
@@ -21,13 +21,7 @@ def cluster_rows(words, tol=5.0):
     return [sorted(v, key=lambda x: x["x0"]) for _, v in sorted(rows.items(), key=lambda kv: kv[0])]
 
 def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, debug=False):
-    """
-    Parse roster PDF where pilot codes are in parentheses after full names:
-      e.g., Kendall Beckles (KVB)
-    Returns:
-      - sorted list of days
-      - availability dict: day -> set of pilot codes
-    """
+    """Parse roster PDF where pilot codes are in parentheses after full names."""
     if valid_pilots is not None:
         valid_pilots = set([p.upper() for p in valid_pilots])
 
@@ -45,26 +39,24 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             if not day_words:
                 continue
 
-            day_rows = cluster_rows(day_words, tol=6.0)
+            day_rows = cluster_rows(day_words)
             best_row = max(day_rows, key=lambda r: len({w["text"] for w in r}))
             day_cols = {str(int(w["text"].lstrip("0"))): (w["x0"] + w["x1"]) / 2 for w in best_row}
             all_days.update(day_cols.keys())
 
-            rows = cluster_rows(words, tol=6.0)
+            rows = cluster_rows(words)
             for row in rows:
-                # Join row text for regex search
                 text_line = " ".join(w["text"] for w in row)
-                # Look for 3-letter pilot code in parentheses only
+                # Only capture 3-letter codes in parentheses
                 matches = re.findall(r"\(([A-Z]{3})\)", text_line)
                 if not matches:
                     continue
 
-                # Filter by valid pilots if provided
+                # Filter by valid pilots
                 pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
                 if not pilot_codes:
                     continue
 
-                # Find availability codes in row
                 for w in row:
                     if w["text"].strip().upper() == available_code.upper():
                         xcenter = (w["x0"] + w["x1"]) / 2
@@ -78,15 +70,10 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
 
     return sorted(all_days, key=lambda x: int(x)), availability
 
-
 def build_allowed_pairs(available_codes, role_map, restrictions_set):
     PICs = [p for p in available_codes if role_map.get(p, "").upper() == "PIC"]
     SICs = [p for p in available_codes if role_map.get(p, "").upper() == "SIC"]
-    allowed = []
-    for pic in PICs:
-        for sic in SICs:
-            if (pic, sic) not in restrictions_set:
-                allowed.append((pic, sic))
+    allowed = [(pic, sic) for pic in PICs for sic in SICs if (pic, sic) not in restrictions_set]
     return PICs, SICs, allowed
 
 def max_bipartite_pairings(PICs, SICs, edges):
@@ -106,7 +93,7 @@ def load_dataframe(uploaded_file):
         raise ValueError("Unsupported file type")
 
 # -----------------------------
-# UI
+# Sidebar inputs
 # -----------------------------
 with st.sidebar:
     st.header("Inputs")
@@ -124,7 +111,7 @@ if not roles_file or not restr_file:
     st.stop()
 
 # -----------------------------
-# Load roles & restrictions safely
+# Load roles and restrictions
 # -----------------------------
 roles_df = load_dataframe(roles_file)
 valid_pilots = roles_df["Pilot"].astype(str).str.upper().tolist()
@@ -142,7 +129,7 @@ with st.spinner("Reading PDF and detecting availability…"):
         pdf_bytes,
         available_code=avail_code,
         valid_pilots=valid_pilots,
-        debug=True  # set False in production
+        debug=True  # Set to False once confirmed working
     )
 
 if not days:
@@ -150,10 +137,10 @@ if not days:
     st.stop()
 
 # -----------------------------
-# Select day and display availability
+# Select day and show availability
 # -----------------------------
 chosen_day = st.selectbox("Select day of month", days)
-avail_today = sorted(list(availability.get(chosen_day, set())))
+avail_today = sorted(list(availability.get(str(chosen_day), set())))  # <-- use str key here
 
 st.subheader(f"Availability (code = '{avail_code}')")
 st.write(f"Pilots with '{avail_code}' on day {chosen_day}: **{len(avail_today)}**")
@@ -182,4 +169,3 @@ st.download_button(
     file_name=f"pairings_day_{chosen_day}.csv",
     mime="text/csv"
 )
-

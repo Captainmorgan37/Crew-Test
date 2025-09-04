@@ -21,9 +21,16 @@ def cluster_rows(words, tol=5.0):
     return [sorted(v, key=lambda x: x["x0"]) for _, v in sorted(rows.items(), key=lambda kv: kv[0])]
 
 def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, debug=False):
-    """Parse roster PDF and return list of days and availability dict (day -> set of pilots)."""
+    """
+    Parse roster PDF where pilot codes are in parentheses after full names:
+      e.g., Kendall Beckles (KVB)
+    Returns:
+      - sorted list of days
+      - availability dict: day -> set of pilot codes
+    """
     if valid_pilots is not None:
         valid_pilots = set([p.upper() for p in valid_pilots])
+
     availability = {}
     all_days = set()
 
@@ -33,38 +40,44 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             if not words:
                 continue
 
-            # Detect day columns (1-31)
+            # Detect day columns
             day_words = [w for w in words if w["text"].lstrip("0").isdigit() and 1 <= int(w["text"].lstrip("0")) <= 31]
             if not day_words:
                 continue
 
-            day_rows = cluster_rows(day_words)
+            day_rows = cluster_rows(day_words, tol=6.0)
             best_row = max(day_rows, key=lambda r: len({w["text"] for w in r}))
             day_cols = {str(int(w["text"].lstrip("0"))): (w["x0"] + w["x1"]) / 2 for w in best_row}
             all_days.update(day_cols.keys())
 
-            # Cluster all words into rows
-            rows = cluster_rows(words)
+            rows = cluster_rows(words, tol=6.0)
             for row in rows:
-                # Candidate pilot codes: 3-letter uppercase words only
-                candidate_codes = [w["text"].upper() for w in row if re.fullmatch(r"[A-Z]{3}", w["text"].upper())]
-                if valid_pilots:
-                    candidate_codes = [c for c in candidate_codes if c in valid_pilots]
-                if not candidate_codes:
+                # Join row text for regex search
+                text_line = " ".join(w["text"] for w in row)
+                # Look for 3-letter pilot code in parentheses only
+                matches = re.findall(r"\(([A-Z]{3})\)", text_line)
+                if not matches:
                     continue
 
+                # Filter by valid pilots if provided
+                pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
+                if not pilot_codes:
+                    continue
+
+                # Find availability codes in row
                 for w in row:
                     if w["text"].strip().upper() == available_code.upper():
                         xcenter = (w["x0"] + w["x1"]) / 2
                         if not day_cols:
                             continue
-                        nearest = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
-                        for pilot_code in candidate_codes:
-                            availability.setdefault(nearest, set()).add(pilot_code)
+                        nearest_day = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
+                        for pilot_code in pilot_codes:
+                            availability.setdefault(nearest_day, set()).add(pilot_code)
                         if debug:
-                            st.write(f"Found {available_code} for pilots {candidate_codes} on day {nearest}")
+                            st.write(f"Found {available_code} for pilots {pilot_codes} on day {nearest_day}")
 
     return sorted(all_days, key=lambda x: int(x)), availability
+
 
 def build_allowed_pairs(available_codes, role_map, restrictions_set):
     PICs = [p for p in available_codes if role_map.get(p, "").upper() == "PIC"]
@@ -169,3 +182,4 @@ st.download_button(
     file_name=f"pairings_day_{chosen_day}.csv",
     mime="text/csv"
 )
+

@@ -3,69 +3,55 @@ import re
 import pandas as pd
 import networkx as nx
 import pdfplumber
+import pytesseract
+from pdf2image import convert_from_bytes
 import streamlit as st
 
 st.set_page_config(page_title="Crew Matching Tool", page_icon="✈️", layout="wide")
-st.title("✈️ Crew Matching Tool (PDF → availability → pairings)")
+st.title("✈️ Crew Matching Tool (PDF → availability → pairings via OCR)")
 
 # -----------------------------
 # Helpers
 # -----------------------------
-def parse_pdf_table(file_like, available_code="A", valid_pilots=None, debug=False):
+def parse_pdf_ocr(file_like, available_code="A", valid_pilots=None, debug=False):
     """
-    Extract pilot availability from a PDF roster table.
-    Assumes table has:
-    - First column: "Full Name (XXX)"
-    - Subsequent columns: day numbers (1-31) with availability code ("A")
+    OCR-based PDF parser.
+    Converts each PDF page to an image, extracts text, and finds pilot codes + availability.
     Returns:
-      - list of days (str)
-      - dict: day -> set of pilot codes
+        days: list of days as strings
+        availability: dict {day -> set of pilot codes}
     """
     availability = {}
     all_days = set()
+    valid_pilots = set([p.upper() for p in valid_pilots]) if valid_pilots else None
 
-    with pdfplumber.open(file_like) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            table = page.extract_table()
-            if not table:
+    images = convert_from_bytes(file_like.read())
+    for page_num, img in enumerate(images, start=1):
+        text = pytesseract.image_to_string(img)
+        lines = text.splitlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
                 continue
 
-            # First row assumed to be header (days)
-            header = table[0]
-            day_cols = {}
-            for idx, h in enumerate(header):
-                if h is None:
-                    continue
-                h_clean = str(h).strip()
-                if h_clean.isdigit() and 1 <= int(h_clean) <= 31:
-                    day_cols[idx] = h_clean
-                    all_days.add(h_clean)
+            # Find all 3-letter pilot codes in parentheses
+            pilot_codes = re.findall(r"\(([A-Z]{3})\)", line)
+            if not pilot_codes:
+                continue
+            if valid_pilots:
+                pilot_codes = [p for p in pilot_codes if p in valid_pilots]
+            if not pilot_codes:
+                continue
 
-            # Process data rows
-            for row in table[1:]:
-                if not row or len(row) < 2:
-                    continue
-
-                # Extract pilot codes from first column
-                first_col = row[0] or ""
-                matches = re.findall(r"\(([A-Z]{3})\)", first_col)
-                if not matches:
-                    continue
-
-                pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
-                if not pilot_codes:
-                    continue
-
-                # Check each day column
-                for idx, cell in enumerate(row):
-                    if idx not in day_cols:
-                        continue
-                    if cell and str(cell).strip().upper() == available_code.upper():
-                        day = day_cols[idx]
-                        for code in pilot_codes:
-                            availability.setdefault(day, set()).add(code)
-                        if debug:
-                            st.write(f"Found {available_code} for {pilot_codes} on day {day}")
+            # Find all day columns with the availability code
+            # Assuming format like: "1 A 2 OFF 3 A ..." or "1A 2OFF 3A"
+            day_matches = re.findall(r"(\d{1,2})\s*(" + re.escape(available_code) + r")", line, re.IGNORECASE)
+            for day_str, code in day_matches:
+                all_days.add(day_str)
+                for pilot_code in pilot_codes:
+                    availability.setdefault(day_str, set()).add(pilot_code)
+                if debug:
+                    st.write(f"Found {available_code} for {pilot_codes} on day {day_str}")
 
     return sorted(list(all_days), key=int), availability
 
@@ -100,6 +86,7 @@ with st.sidebar:
     roles_file = st.file_uploader("Pilot roles (CSV or Excel)", type=["csv", "xlsx"])
     restr_file = st.file_uploader("Restrictions (CSV or Excel)", type=["csv", "xlsx"])
     avail_code = st.text_input("Availability code to look for", "A")
+    debug_mode = st.checkbox("Debug OCR output", value=True)
 
 if not pdf_file or not roles_file or not restr_file:
     st.warning("Upload PDF, Roles, and Restrictions files to compute pairings.")
@@ -116,19 +103,19 @@ restr_df = load_dataframe(restr_file)
 restrictions = set((str(r.PIC).upper(), str(r.SIC).upper()) for _, r in restr_df.iterrows())
 
 # -----------------------------
-# Parse PDF
+# Parse PDF with OCR
 # -----------------------------
-with st.spinner("Reading PDF and detecting availability…"):
+with st.spinner("Performing OCR on PDF and detecting availability…"):
     pdf_bytes = io.BytesIO(pdf_file.read())
-    days, availability = parse_pdf_table(
+    days, availability = parse_pdf_ocr(
         pdf_bytes,
         available_code=avail_code,
         valid_pilots=valid_pilots,
-        debug=True  # turn off once working
+        debug=debug_mode
     )
 
 if not days:
-    st.error("No day columns detected. Share a sample PDF if parsing fails.")
+    st.error("No day columns detected. OCR may have failed. Check the PDF.")
     st.stop()
 
 # -----------------------------

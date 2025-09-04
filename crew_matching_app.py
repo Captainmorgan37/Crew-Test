@@ -1,9 +1,8 @@
 import io
 import re
-import json
-import pdfplumber
 import pandas as pd
 import networkx as nx
+import pdfplumber
 import streamlit as st
 
 st.set_page_config(page_title="Crew Matching Tool", page_icon="✈️", layout="wide")
@@ -12,42 +11,17 @@ st.title("✈️ Crew Matching Tool (PDF → availability → pairings)")
 # -----------------------------
 # Helpers
 # -----------------------------
-
-def cluster_rows(words, tol=3.0):
+def cluster_rows(words, tol=5.0):
     """Group words by rough row using their vertical center."""
     rows = {}
     for w in words:
         yc = (w["top"] + w["bottom"]) / 2
-        key = round(yc / tol)  # bucket
+        key = round(yc / tol)
         rows.setdefault(key, []).append(w)
-    # sort by vertical position
     return [sorted(v, key=lambda x: x["x0"]) for _, v in sorted(rows.items(), key=lambda kv: kv[0])]
 
-def detect_day_columns(page_words):
-    """Return dict: day(str '1'..'31') -> x_center from header line with most day numbers."""
-    day_words = [w for w in page_words if w["text"].isdigit() and 1 <= int(w["text"]) <= 31]
-    if not day_words:
-        return {}
-    rows = cluster_rows(day_words, tol=3.0)
-    best_row = max(rows, key=lambda r: len({w["text"] for w in r}))
-    colmap = {}
-    for w in best_row:
-        d = str(int(w["text"]))
-        xcenter = (w["x0"] + w["x1"]) / 2
-        colmap[d] = xcenter
-    return colmap
-
-def nearest_day(x, day_xcenters):
-    if not day_xcenters:
-        return None
-    return min(day_xcenters.keys(), key=lambda d: abs(day_xcenters[d] - x))
-
 def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, debug=False):
-    """
-    Parses roster PDF and returns:
-      - sorted list of days
-      - availability dict: day -> set of pilot codes (filtered by valid_pilots if provided)
-    """
+    """Parse roster PDF and return list of days and availability dict (day -> set of pilots)."""
     if valid_pilots is not None:
         valid_pilots = set([p.upper() for p in valid_pilots])
     availability = {}
@@ -64,29 +38,24 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             if not day_words:
                 continue
 
-            day_rows = cluster_rows(day_words, tol=5.0)
+            day_rows = cluster_rows(day_words)
             best_row = max(day_rows, key=lambda r: len({w["text"] for w in r}))
             day_cols = {str(int(w["text"].lstrip("0"))): (w["x0"] + w["x1"]) / 2 for w in best_row}
             all_days.update(day_cols.keys())
 
             # Cluster all words into rows
-            rows = cluster_rows(words, tol=5.0)
+            rows = cluster_rows(words)
             for row in rows:
-                # Find all 3-letter uppercase words in row
+                # Candidate pilot codes: 3-letter uppercase words only
                 candidate_codes = [w["text"].upper() for w in row if re.fullmatch(r"[A-Z]{3}", w["text"].upper())]
-
-                # Filter by valid_pilots if provided
                 if valid_pilots:
                     candidate_codes = [c for c in candidate_codes if c in valid_pilots]
-
                 if not candidate_codes:
                     continue
 
-                # For each word in row, check if it's the availability code
                 for w in row:
                     if w["text"].strip().upper() == available_code.upper():
                         xcenter = (w["x0"] + w["x1"]) / 2
-                        # Find nearest day
                         if not day_cols:
                             continue
                         nearest = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
@@ -96,8 +65,6 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                             st.write(f"Found {available_code} for pilots {candidate_codes} on day {nearest}")
 
     return sorted(all_days, key=lambda x: int(x)), availability
-
-
 
 def build_allowed_pairs(available_codes, role_map, restrictions_set):
     PICs = [p for p in available_codes if role_map.get(p, "").upper() == "PIC"]
@@ -135,51 +102,53 @@ with st.sidebar:
     restr_file = st.file_uploader("Restrictions (CSV or Excel)", type=["csv", "xlsx"])
     avail_code = st.text_input("Availability code to look for", "A")
 
-    st.caption("Roles file example:\nPilot,Role\nKVB,PIC\nHEB,SIC\n...")
-    st.caption("Restrictions file example:\nPIC,SIC\nKVB,HEB\nYAD,TJF\n...")
-
 if not pdf_file:
     st.info("Upload your roster PDF to begin.")
     st.stop()
 
-# Load roles first (needed for filtering pilot codes)
-roles_df = load_dataframe(roles_file)
-valid_pilots = roles_df["Pilot"].astype(str).str.upper().tolist()
-
-# Parse PDF
-with st.spinner("Reading PDF and detecting availability…"):
-    data = pdf_file.read()
-    pdf_bytes = io.BytesIO(data)
-    days, availability = parse_pdf_availability(
-        pdf_bytes, 
-        available_code=avail_code, 
-        valid_pilots=valid_pilots, 
-        debug=True  # optional, set to False if you don't want logs
-    )
-
-
-if not days:
-    st.error("No day columns detected. Share a sample PDF if parsing fails.")
-    st.stop()
-
-chosen_day = st.selectbox("Select day of month", days)
-
-st.subheader(f"Availability (code = '{avail_code}')")
-avail_today = sorted(list(availability.get(chosen_day, set())))
-st.write(f"Pilots with '{avail_code}' on day {chosen_day}: **{len(avail_today)}**")
-st.dataframe(pd.DataFrame(avail_today, columns=["Pilot code"]))
-
-# Need roles + restrictions
 if not roles_file or not restr_file:
     st.warning("Upload the Roles and Restrictions files to compute pairings.")
     st.stop()
 
+# -----------------------------
+# Load roles & restrictions safely
+# -----------------------------
 roles_df = load_dataframe(roles_file)
+valid_pilots = roles_df["Pilot"].astype(str).str.upper().tolist()
 role_map = dict(zip(roles_df["Pilot"].astype(str).str.upper(), roles_df["Role"].astype(str).str.upper()))
 
 restr_df = load_dataframe(restr_file)
 restrictions = set((str(r.PIC).upper(), str(r.SIC).upper()) for _, r in restr_df.iterrows())
 
+# -----------------------------
+# Parse PDF
+# -----------------------------
+with st.spinner("Reading PDF and detecting availability…"):
+    pdf_bytes = io.BytesIO(pdf_file.read())
+    days, availability = parse_pdf_availability(
+        pdf_bytes,
+        available_code=avail_code,
+        valid_pilots=valid_pilots,
+        debug=True  # set False in production
+    )
+
+if not days:
+    st.error("No day columns detected. Share a sample PDF if parsing fails.")
+    st.stop()
+
+# -----------------------------
+# Select day and display availability
+# -----------------------------
+chosen_day = st.selectbox("Select day of month", days)
+avail_today = sorted(list(availability.get(chosen_day, set())))
+
+st.subheader(f"Availability (code = '{avail_code}')")
+st.write(f"Pilots with '{avail_code}' on day {chosen_day}: **{len(avail_today)}**")
+st.dataframe(pd.DataFrame(avail_today, columns=["Pilot code"]))
+
+# -----------------------------
+# Compute pairings
+# -----------------------------
 PICs, SICs, allowed_edges = build_allowed_pairs([p.upper() for p in avail_today], role_map, restrictions)
 pairings = max_bipartite_pairings(PICs, SICs, allowed_edges)
 
@@ -194,9 +163,9 @@ pairs_df = pd.DataFrame(pairings, columns=["PIC", "SIC"])
 st.dataframe(pairs_df, use_container_width=True)
 
 pairs_csv = pairs_df.to_csv(index=False).encode("utf-8")
-st.download_button("Download pairings CSV", data=pairs_csv,
-                   file_name=f"pairings_day_{chosen_day}.csv", mime="text/csv")
-
-
-
-
+st.download_button(
+    "Download pairings CSV",
+    data=pairs_csv,
+    file_name=f"pairings_day_{chosen_day}.csv",
+    mime="text/csv"
+)

@@ -5,5 +5,4 @@ networkx
 openpyxl
 pytesseract
 pdf2image
-matplotlib.pyplot
 python-docx

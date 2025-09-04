@@ -4,3 +4,4 @@ pandas
 networkx
 openpyxl
 pytesseract
+pdf2image

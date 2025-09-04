@@ -21,7 +21,7 @@ def cluster_rows(words, tol=6.0):
     return [sorted(v, key=lambda x: x["x0"]) for _, v in sorted(rows.items(), key=lambda kv: kv[0])]
 
 def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, debug=False):
-    """Parse roster PDF where pilot codes are in parentheses after full names."""
+    """Parse roster PDF where pilot codes are in parentheses after full names, with availability on separate rows."""
     if valid_pilots is not None:
         valid_pilots = set([p.upper() for p in valid_pilots])
 
@@ -45,17 +45,52 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             all_days.update(day_cols.keys())
 
             rows = cluster_rows(words)
-            for row in rows:
+            
+            # NEW APPROACH: First pass - collect all pilot rows with their positions
+            pilot_rows = []
+            for i, row in enumerate(rows):
                 text_line = " ".join(w["text"] for w in row)
-                # FIXED: Robustly capture 2-3 letter pilot codes in parentheses
                 matches = re.findall(r"\(?([A-Z]{2,3})\)?", text_line)
-                if not matches:
-                    continue
+                if matches:
+                    pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
+                    if pilot_codes:
+                        # Get average Y position for this row
+                        avg_y = sum((w["top"] + w["bottom"]) / 2 for w in row) / len(row)
+                        pilot_rows.append({
+                            'row_index': i,
+                            'pilot_codes': pilot_codes,
+                            'y_position': avg_y
+                        })
+                        if debug:
+                            st.write(f"Found pilot(s) {pilot_codes} at row {i}, y={avg_y:.1f}")
 
-                pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
-                if not pilot_codes:
+            # Second pass - find availability codes and match to nearest pilot above
+            for i, row in enumerate(rows):
+                # Skip if this row contains pilot names
+                if any(pr['row_index'] == i for pr in pilot_rows):
                     continue
-
+                    
+                # Check if this row has availability codes
+                has_availability = any(w["text"].strip().upper() == available_code.upper() for w in row)
+                if not has_availability:
+                    continue
+                
+                # Find the nearest pilot row above this availability row
+                row_y = sum((w["top"] + w["bottom"]) / 2 for w in row) / len(row)
+                nearest_pilot = None
+                min_distance = float('inf')
+                
+                for pilot_row in pilot_rows:
+                    if pilot_row['y_position'] < row_y:  # Pilot must be above availability
+                        distance = row_y - pilot_row['y_position']
+                        if distance < min_distance:
+                            min_distance = distance
+                            nearest_pilot = pilot_row
+                
+                if nearest_pilot is None:
+                    continue
+                
+                # Process availability codes in this row
                 for w in row:
                     if w["text"].strip().upper() == available_code.upper():
                         xcenter = (w["x0"] + w["x1"]) / 2
@@ -63,10 +98,12 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                             continue
                         nearest_day = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
                         nearest_day_str = str(nearest_day)
-                        for pilot_code in pilot_codes:
+                        
+                        for pilot_code in nearest_pilot['pilot_codes']:
                             availability.setdefault(nearest_day_str, set()).add(pilot_code)
+                            
                         if debug:
-                            st.write(f"Found {available_code} for pilots {pilot_codes} on day {nearest_day_str}")
+                            st.write(f"Found {available_code} for pilots {nearest_pilot['pilot_codes']} on day {nearest_day_str} (distance: {min_distance:.1f})")
 
     return sorted([str(d) for d in all_days], key=int), availability
 

@@ -29,12 +29,12 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
     all_days = set()
 
     with pdfplumber.open(file_like) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        for page in pdf.pages:
             words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
             if not words:
                 continue
 
-            # Detect day columns
+            # Detect day columns (1-31)
             day_words = [w for w in words if w["text"].lstrip("0").isdigit() and 1 <= int(w["text"].lstrip("0")) <= 31]
             if not day_words:
                 continue
@@ -47,12 +47,11 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             rows = cluster_rows(words)
             for row in rows:
                 text_line = " ".join(w["text"] for w in row)
-                # Only capture 3-letter codes in parentheses
-                matches = re.findall(r"\(([A-Z]{3})\)", text_line)
+                # Robustly capture 3-letter pilot codes in parentheses, even if split
+                matches = re.findall(r"\(?([A-Z]{3})\)?", text_line)
                 if not matches:
                     continue
 
-                # Filter by valid pilots
                 pilot_codes = [m for m in matches if not valid_pilots or m in valid_pilots]
                 if not pilot_codes:
                     continue
@@ -63,12 +62,13 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                         if not day_cols:
                             continue
                         nearest_day = min(day_cols.keys(), key=lambda d: abs(day_cols[d] - xcenter))
+                        nearest_day_str = str(nearest_day)
                         for pilot_code in pilot_codes:
-                            availability.setdefault(nearest_day, set()).add(pilot_code)
+                            availability.setdefault(nearest_day_str, set()).add(pilot_code)
                         if debug:
-                            st.write(f"Found {available_code} for pilots {pilot_codes} on day {nearest_day}")
+                            st.write(f"Found {available_code} for pilots {pilot_codes} on day {nearest_day_str}")
 
-    return sorted(all_days, key=lambda x: int(x)), availability
+    return sorted([str(d) for d in all_days], key=int), availability
 
 def build_allowed_pairs(available_codes, role_map, restrictions_set):
     PICs = [p for p in available_codes if role_map.get(p, "").upper() == "PIC"]
@@ -129,7 +129,7 @@ with st.spinner("Reading PDF and detecting availability…"):
         pdf_bytes,
         available_code=avail_code,
         valid_pilots=valid_pilots,
-        debug=True  # Set to False once confirmed working
+        debug=True  # Set False in production
     )
 
 if not days:
@@ -140,7 +140,7 @@ if not days:
 # Select day and show availability
 # -----------------------------
 chosen_day = st.selectbox("Select day of month", days)
-avail_today = sorted(list(availability.get(str(chosen_day), set())))  # <-- use str key here
+avail_today = sorted(list(availability.get(chosen_day, set())))
 
 st.subheader(f"Availability (code = '{avail_code}')")
 st.write(f"Pilots with '{avail_code}' on day {chosen_day}: **{len(avail_today)}**")

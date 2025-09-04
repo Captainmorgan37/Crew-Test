@@ -6,3 +6,4 @@ openpyxl
 pytesseract
 pdf2image
 matplotlib.pyplot
+docx

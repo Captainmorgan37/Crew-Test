@@ -47,8 +47,8 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
             rows = cluster_rows(words)
             for row in rows:
                 text_line = " ".join(w["text"] for w in row)
-                # Robustly capture 3-letter pilot codes in parentheses, even if split
-                matches = re.findall(r"\(?([A-Z]{3})\)?", text_line)
+                # FIXED: Robustly capture 2-3 letter pilot codes in parentheses
+                matches = re.findall(r"\(?([A-Z]{2,3})\)?", text_line)
                 if not matches:
                     continue
 
@@ -124,7 +124,7 @@ restrictions = set((str(r.PIC).upper(), str(r.SIC).upper()) for _, r in restr_df
 # Parse PDF
 # -----------------------------
 with st.spinner("Reading PDF and detecting availability…"):
-    pdf_file.seek(0)  # Reset file pointer
+    pdf_file.seek(0)  # FIXED: Reset file pointer to avoid empty reads
     pdf_bytes = io.BytesIO(pdf_file.read())
     days, availability = parse_pdf_availability(
         pdf_bytes,
@@ -170,4 +170,3 @@ st.download_button(
     file_name=f"pairings_day_{chosen_day}.csv",
     mime="text/csv"
 )
-

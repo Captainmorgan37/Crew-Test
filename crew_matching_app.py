@@ -124,6 +124,7 @@ restrictions = set((str(r.PIC).upper(), str(r.SIC).upper()) for _, r in restr_df
 # Parse PDF
 # -----------------------------
 with st.spinner("Reading PDF and detecting availability…"):
+    pdf_file.seek(0)  # Reset file pointer
     pdf_bytes = io.BytesIO(pdf_file.read())
     days, availability = parse_pdf_availability(
         pdf_bytes,
@@ -169,3 +170,4 @@ st.download_button(
     file_name=f"pairings_day_{chosen_day}.csv",
     mime="text/csv"
 )
+

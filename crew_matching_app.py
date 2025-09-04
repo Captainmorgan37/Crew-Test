@@ -35,7 +35,7 @@ def load_dataframe(uploaded_file):
 # -----------------------------
 with st.sidebar:
     st.header("Inputs")
-    avail_file = st.file_uploader("Availability CSV", type=["csv", "xlsx"])
+    avail_file = st.file_uploader("Availability CSV (1-day A list)", type=["csv", "xlsx"])
     roles_file = st.file_uploader("Pilot roles CSV/Excel", type=["csv", "xlsx"])
     restr_file = st.file_uploader("Restrictions CSV/Excel", type=["csv", "xlsx"])
 
@@ -55,7 +55,6 @@ restrictions = set((str(r.PIC).upper(), str(r.SIC).upper()) for _, r in restr_df
 # -----------------------------
 # Full name → code mapping
 # -----------------------------
-# You can expand this dict to include all pilots
 name_to_code = {
     "Kendall Beckles": "KVB",
     "Hendrik Britz": "HEB",
@@ -76,13 +75,12 @@ name_to_code = {
     "Francisco Andrade": "FXA",
     "Nadim Bendidane": "NBB",
     "Vivien Frelat": "VJF",
-    "Gary Goertzen": "GDG",
-}
-
+    "Gary Goertzen": "GDG"
+    # Add more pilots here as needed
 }
 
 # -----------------------------
-# Parse availability CSV
+# Parse availability CSV (1-day only, already filtered for A)
 # -----------------------------
 avail_df = load_dataframe(avail_file)
 full_names = avail_df.iloc[:, 0].astype(str).tolist()  # first column only
@@ -92,15 +90,9 @@ if not pilot_codes:
     st.error("No valid pilot codes found. Check your mapping.")
     st.stop()
 
-# For simplicity, assume all pilots in this CSV are available for the **same day**
-# If you have multiple days, you could have a column per day and expand accordingly
-days = ["All Days"]
-availability = {"All Days": set(pilot_codes)}
+avail_today = sorted(set(pilot_codes))
 
-chosen_day = st.selectbox("Select day", days)
-avail_today = sorted(list(availability.get(chosen_day, set())))
-
-st.subheader("Available Pilots")
+st.subheader("Available Pilots (A-day list)")
 st.write(f"Pilots available: **{len(avail_today)}**")
 st.dataframe(pd.DataFrame(avail_today, columns=["Pilot code"]))
 

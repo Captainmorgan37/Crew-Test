@@ -80,12 +80,23 @@ def parse_pdf_availability(file_like, available_code="A", valid_pilots=None, deb
                 nearest_pilot = None
                 min_distance = float('inf')
                 
+                if debug:
+                    st.write(f"🔍 Processing availability row {i}, y={row_y:.1f}")
+                    st.write(f"   Row content: {' '.join([w['text'] for w in row])}")
+                
                 for pilot_row in pilot_rows:
                     if pilot_row['y_position'] < row_y:  # Pilot must be above availability
                         distance = row_y - pilot_row['y_position']
+                        if debug:
+                            st.write(f"   📏 Distance to pilot {pilot_row['pilot_codes']} (row {pilot_row['row_index']}): {distance:.1f}")
                         if distance < min_distance:
                             min_distance = distance
                             nearest_pilot = pilot_row
+                
+                if debug and nearest_pilot:
+                    st.write(f"   ✅ Closest pilot: {nearest_pilot['pilot_codes']} at distance {min_distance:.1f}")
+                elif debug:
+                    st.write(f"   ❌ No valid pilot found above this availability row")
                 
                 # FIXED: Only match if the distance is reasonable (within ~8 units) AND not too many rows away
                 if nearest_pilot is None or min_distance > 8.0:
